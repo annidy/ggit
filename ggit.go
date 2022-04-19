@@ -16,9 +16,10 @@ import (
 	"golang.org/x/term"
 )
 
-func newCmd(shell string) error {
+func newCmd(dir string, shell string) error {
 	log.Println(shell)
 	c := exec.Command("/bin/sh", "-c", shell)
+	c.Dir = dir
 
 	// Start the command with a pty.
 	ptmx, err := pty.Start(c)
@@ -56,25 +57,23 @@ func newCmd(shell string) error {
 	return nil
 }
 
-func cd_cmd(dir string, cmd string) string {
-	return "cd '" + dir + "' && " + cmd
-}
-
 func pull(dir string) {
-	execCmd := exec.Command("/bin/sh", "-c", "cd '"+dir+"' && git stash")
+	execCmd := exec.Command("/bin/sh", "-c", "git stash")
+	execCmd.Dir = dir
 	stdoutStderr, err := execCmd.CombinedOutput()
 	if err != nil {
 		log.Fatal(err)
 	}
 	noStash := strings.Contains(string(stdoutStderr), "No local changes to save")
 
-	err = newCmd(cd_cmd(dir, "git pull"))
+	err = newCmd(dir, "git pull")
 	if err != nil {
 		log.Fatal(dir, ":", err)
 	}
 
 	if !noStash {
-		execCmd := exec.Command("/bin/sh", "-c", "cd '"+dir+"' && git stash pop")
+		execCmd := exec.Command("/bin/sh", "-c", "git stash pop")
+		execCmd.Dir = dir
 		_, err := execCmd.CombinedOutput()
 		if err != nil {
 			log.Fatal("stash pop:", err)
@@ -87,7 +86,7 @@ func run(dir string, arg ...string) {
 		pull(dir)
 		return
 	}
-	err := newCmd(cd_cmd(dir, "git "+strings.Join(arg, " ")))
+	err := newCmd(dir, "git "+strings.Join(arg, " "))
 	if err != nil {
 		log.Fatal(dir, ":", err)
 	}
