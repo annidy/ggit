@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -11,13 +12,14 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 	"golang.org/x/term"
 )
 
 func newCmd(dir string, shell string) error {
-	log.Println(shell)
+	log.Printf("%s: %s\n", dir, shell)
 	c := exec.Command("/bin/sh", "-c", shell)
 	c.Dir = dir
 
@@ -88,7 +90,7 @@ func run(dir string, arg ...string) {
 	}
 	err := newCmd(dir, "git "+strings.Join(arg, " "))
 	if err != nil {
-		log.Fatal(dir, ":", err)
+		log.Println(dir, ":", err)
 	}
 }
 
@@ -113,10 +115,39 @@ func main() {
 			}
 			wg.Add(1)
 			go func(dir string) {
-				run(dir, os.Args[1:]...)
-				wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Println("Error:\n", r)
+					}
+					wg.Done()
+				}()
+
+				wait := make(chan bool, 1)
+				go func() {
+					ch := make(chan os.Signal, 1)
+					signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+					defer func() {
+						signal.Stop(ch)
+						close(ch)
+					}()
+					go func() {
+						for range ch {
+							wait <- true
+						}
+					}()
+					log.Printf("process %s, Ctrl+C cancel", dir)
+					time.Sleep(3 * time.Second)
+					wait <- false
+				}()
+
+				cancel := <-wait
+				if cancel {
+					fmt.Println("canceled")
+				} else {
+					run(dir, os.Args[1:]...)
+				}
 			}(file.Name())
+			wg.Wait()
 		}
 	}
-	wg.Wait()
 }
